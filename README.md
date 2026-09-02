@@ -1,74 +1,66 @@
 # Basketball Multi-Camera CV Tracking
 
-This repository contains the end-to-end computer vision pipeline for multi-camera basketball player and ball tracking, built using YOLOv8, ByteTrack, ResNet-50 Deep Appearance Embeddings, OpenCV, and Pandas.
+An end-to-end computer vision pipeline for multi-camera basketball player tracking, cross-camera identity association, and automated shot event detection built with YOLOv8, ByteTrack, ResNet-50 appearance embeddings, and OpenCV.
 
 ---
 
-### Progress Status
+### Milestone Progress Tracker
 
-**Milestones 1–3: Single-Camera Tracking Pipeline**
-* Configured YOLOv8s for concurrent detection of players (`class 0`) and the basketball (`class 32`).
-* Integrated ByteTrack for persistent local identity tracking across video frames.
-* Implemented dynamic Region of Interest (ROI) spatial filters to exclude out-of-bounds bench personnel and background murals.
-* Generated annotated tracking videos and frame-by-frame coordinate logs (`.csv`) for both camera angles:
-  * Front-Left (`FL_full_5min_tracks_v2.csv`) — 8,994 frames
-  * Near-Left (`NL_full_5min_tracks.csv`) — 8,993 frames
+* **Milestones 1–3: Single-Camera Tracking Pipeline (Completed)**
+  * Concurrent detection of court players (`class 0`) and the basketball (`class 32`) via YOLOv8s.
+  * Multi-object tracking with ByteTrack leveraging Kalman filter state estimation.
+  * Spatial ROI boundary masking to filter bench personnel and out-of-bounds movement.
+  * Processed 8,994 frames for Front-Left (`FL`) and 8,993 frames for Near-Left (`NL`).
 
-**Milestone 4: Cross-Camera Re-ID & Global Identity Matching (Completed)**
-* Filtered stable player tracklets ($\ge 45$ frames) to drop transient false-positive trajectories.
-* Extracted deep visual appearance feature vectors using a truncated ResNet-50 CNN backbone across player tracklet crops in both camera views.
-* Evaluated cross-camera associations using a Cosine Distance Matrix and greedy bipartite matching ($\ge 0.60$ similarity threshold).
-* Unified 162,291 detection records across Front-Left (`FL`) and Near-Left (`NL`) into **85 persistent Global IDs**.
-* Generated master tracking dataset (`global_tracks_unified.csv`).
+* **Milestone 4: Cross-Camera Re-ID & Identity Matching (Completed)**
+  * Extracted 2048-dimensional appearance feature vectors using a truncated ResNet-50 CNN backbone.
+  * Applied cosine similarity and greedy bipartite matching ($\ge 0.60$ threshold) across player tracklets ($\ge 45$ frames).
+  * Unified 162,291 detection records across `FL` and `NL` into **85 persistent Global IDs**.
+  * Generated master dataset: `global_tracks_unified.csv`.
 
-**Milestone 5: Event & Shot Detection (Next Up)**
-* Pending: Hoop-zone ROI calibration and trajectory arc classification (apex verification & downward basket penetration) for shot attempt/conversion logging.
+* **Milestone 5: Event & Shot Detection (Completed)**
+  * Solved high-speed motion blur and ball dropouts using a localized Hoop Region of Interest (ROI) approach ($915 \le X \le 975$, $235 \le Y \le 290$).
+  * Monitored parabolic trajectory arcs (ascent, apex verification, and downward penetration through the rim plane).
+  * Analyzed 8,994 frames (~30 FPS) on the primary half-court hoop, successfully identifying 5 verified shot events.
+  * Generated event log: `FL_shot_events.csv`.
 
 ---
 
-### Cross-Camera Association Architecture
+### Milestone 5: Detected Shot Events Log (Far Basket)
 
-| Stage | Method / Component | Target / Objective |
+| Shot ID | Frame | Timestamp (s) | Apex Y (px) | Event Classification |
+| :---: | :---: | :---: | :---: | :---: |
+| **01** | 2,856 | 95.30s | 209 | Made Basket |
+| **02** | 3,503 | 116.88s | 138 | Shot Attempt |
+| **03** | 5,786 | 193.06s | 214 | Shot Attempt |
+| **04** | 6,197 | 206.77s | 220 | Shot Attempt |
+| **05** | 7,725 | 257.76s | 183 | Made Basket |
+
+> **Note on Event Frequency:** The detector monitors the far hoop in the Front-Left camera view. Across a 5-minute full-court game, possessions alternate between hoops, yielding roughly ~2.5 minutes of active offensive play on this basket. The 5 detected attempts represent the shots taken within this half-court target zone.
+
+---
+
+### System Architecture & Pipeline Design
+
+| Component | Target Objective | Strategy / Model |
 | :--- | :--- | :--- |
-| **Local MOT** | ByteTrack | High-speed, frame-to-frame trajectory persistence per camera |
-| **Feature Extraction** | Pre-trained ResNet-50 | 2048-dimensional L2-normalized appearance embeddings from player crops |
-| **Global Association** | Cosine Metric + Distance Matrix | Pairwise identity matching between `FL` and `NL` identity clusters |
-| **Schema Merge** | Unified Schema Integration | Consolidated dataset linking local camera tracks to unified Global IDs |
+| **Detection** | Player & Ball Localization | YOLOv8s ($320\text{ px}$ to $1280\text{ px}$ inference) |
+| **MOT Tracking** | Single-Camera Persistence | ByteTrack (Kalman Filter + Spatial IoU) |
+| **Re-ID / Global ID** | Multi-Camera Fusion | ResNet-50 truncated backbone + Cosine similarity |
+| **Shot Detection** | Event Logging | Parabolic trajectory evaluation within calibrated hoop zone |
 
 ---
 
-### Milestone 4: Cross-Camera Association Results
+### Documented Constraints & Mitigations
 
-| Metric | Result |
-| :--- | :--- |
-| **Total Detection Records Unified** | 162,291 records |
-| **Cameras Integrated** | Front-Left (`FL`), Near-Left (`NL`) |
-| **Total Persistent Global IDs** | 85 matched identities |
-| **Minimum Tracklet Threshold** | 45 frames (~1.5s persistence) |
-| **Appearance Similarity Cutoff** | $\ge 0.60$ Cosine Score |
-
-**Sample Cross-Camera Global Identity Mappings:**
-
-| Global ID | FL Local ID | NL Local ID | Status |
-| :---: | :---: | :---: | :---: |
-| **01** | Player 303 | Player 619 | Verified Match |
-| **02** | Player 1856 | Player 3005 | Verified Match |
-| **03** | Player 2793 | Player 3657 | Verified Match |
-| **04** | Player 2107 | Player 7734 | Verified Match |
-| **05** | Player 819 | Player 2011 | Verified Match |
-
----
-
-### Documented Constraints & Solutions
-
-* **High-Speed Motion Blur:** Standard single-frame YOLO detection experiences mid-air ball dropouts during rapid passes. Addressed by isolating ball detection from ByteTrack Kalman motion constraints and focusing trajectory checks on the shooting arc.
-* **Network FUSE I/O Bottlenecks:** Direct random-access seeking (`cap.set`) across Google Drive FUSE caused significant latency during crop extraction. Resolved by batch-scheduling frame targets and executing a single sequential video stream.
-* **Jersey Kit Homogeneity:** Player appearance features within the same team share color profiles; identity stability is maintained by aggregating multi-crop mean vectors and applying a minimum persistence filter ($\ge 45$ frames).
+* **Motion Blur & Ball Dropouts:** Full-court tracking frequently drops the basketball during rapid passes and shots. Solved by isolating high-resolution inference to the hoop zone and lowering the detection threshold (`conf=0.05`) within the localized ROI.
+* **Network I/O Bottlenecks:** Eliminated random frame seeking over Google Drive FUSE by performing sequential frame passes with trajectory buffering.
+* **Rebound Multi-Counting:** Added a 75-frame (2.5s) cooldown window immediately after a shot trigger to prevent ball rebounds and putback scrambles from causing duplicate detections.
 
 ---
 
 ### Project Structure
 
 ```text
-├── basketball_cv.ipynb          # End-to-end pipeline: Tracking, Re-ID extraction, and matching
-└── README.md                    # System architecture documentation and milestone tracker
+├── basketball_cv.ipynb          # Full pipeline: Detection, Tracking, Re-ID, and Shot Detection
+└── README.md                    # Architecture documentation, milestone logs, and metrics
