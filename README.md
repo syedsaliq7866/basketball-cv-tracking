@@ -1,14 +1,19 @@
-### Known Limitations & Failure Modes
+# Basketball Computer Vision Pipeline: Multi-View Tracking & Fusion
+**Author:** Syed Saliq Alishah
 
-As part of the final evaluation, several failure modes were identified during the 4-camera fusion process:
+## Project Overview
+This repository contains the complete codebase and output deliverables for the multi-camera basketball tracking assignment. The pipeline is designed to process four synchronized camera angles (Front-Left, Near-Left, Front-Right, Near-Right), detect players and the basketball, assign local tracking IDs, and fuse these identities across all views into a master dataset using persistent Global IDs.
 
-1. **View-Angle Appearance Shift (Left-to-Right Court Split):** 
-   While the ResNet-50 Re-ID pipeline successfully linked identities between cameras on the same side of the court (e.g., matching FL to NL, and FR to NR), it struggled to fuse identities across the center line. Because players face opposite directions relative to the left vs. right cameras, the visual features extracted (front of jersey vs. back of jersey) fell below the `0.60` cosine similarity threshold, resulting in split Global IDs across the hemispheres.
-   * *Proposed Improvement:* Implement a multi-view gallery for each Global ID that stores both front and back embedding centroids, or integrate jersey number OCR to provide a hard semantic link.
+## Architecture & Model Choices
+The system relies on a multi-stage computer vision pipeline:
+* **Object Detection (YOLOv8s):** Chosen for its optimal balance of real-time inference speed and accuracy. It successfully detects `class 0` (person) and `class 32` (sports ball) across the 1080p frames.
+* **Intra-Camera Tracking (ByteTrack / DeepSORT):** Handles localized frame-to-frame tracking within single camera views, assigning persistent local track IDs while handling brief occlusions.
+* **Cross-Camera Fusion & Re-ID (ResNet-50):** A truncated ResNet-50 model extracts 2048-dimensional appearance embeddings from bounding box crops. A cosine similarity matrix (threshold: `0.60`) is used to match and fuse identities across the four independent camera feeds into a single Global ID.
 
-2. **Static False Positives (Wall Murals):**
-   The YOLOv8s detector confidently identified painted murals of basketball players on the gym walls as active class `0` (person) detections. Because these murals do not move, ByteTrack and DeepSORT easily assigned them stable tracking IDs.
-   * *Proposed Improvement:* Tighten the coordinate-based Region of Interest (ROI) exclusion masks to strictly encompass the hardwood floor, or introduce a minimum velocity threshold to drop static bounding boxes.
-
-3. **Re-ID Under Occlusion:**
-   During tight physical plays under the rim, bounding boxes frequently overlap, causing the cropped image tensors to contain visual features of two distinct jerseys. This briefly degrades the accuracy of the ResNet-50 embedding, sometimes causing an identity switch if a player breaks out of the cluster.
+## Setup & Execution
+The entire pipeline is consolidated into a single Google Colab environment to utilize GPU acceleration.
+1. Clone this repository to your local machine or Google Drive.
+2. Open `basketball_cv.ipynb` in Google Colab (ensure Hardware Accelerator is set to T4 GPU).
+3. Mount Google Drive and install the required dependencies:
+   ```bash
+   pip install ultralytics opencv-python supervision pandas
